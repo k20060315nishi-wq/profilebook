@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Wedding Profile Book</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <style>
+        :root {
+            --book-width: 95vw;
+            --book-height: 70vh;
+            --page-bg: #ffffff;
+            --accent-gold: #d4af37;
+        }
+
+        @media (min-width: 1024px) {
+            :root {
+                --book-width: 900px;
+                --book-height: 630px;
+            }
+        }
+
+        body {
+            background-color: #fdfbf7;
+            color: #4a4a4a;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            font-family: 'Times New Roman', "serif", "Noto Serif JP";
+            /* タッチデバイスでの意図しないズームやスクロールを防止 */
+            touch-action: manipulation;
+        }
+
+        .book-container {
+            perspective: 2000px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 10;
+            background: radial-gradient(circle, #fdfbf7 0%, #e2d1c3 100%);
+        }
+
+        .book {
+            width: var(--book-width);
+            height: var(--book-height);
+            position: relative;
+            transition: transform 0.5s;
+            transform-style: preserve-3d;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.15);
+        }
+
+        .page {
+            width: 50%;
+            height: 100%;
+            position: absolute;
+            top: 0;
+            right: 0;
+            transform-origin: left;
+            transition: transform 0.8s cubic-bezier(0.645, 0.045, 0.355, 1);
+            transform-style: preserve-3d;
+            cursor: pointer;
+            z-index: 1;
+        }
+
+        .page-content {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            top: 0;
+            left: 0;
+            background: var(--page-bg);
+            box-shadow: inset 3px 0 10px rgba(0,0,0,0.05);
+            backface-visibility: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+            border-radius: 0 2px 2px 0;
+        }
+
+        .page-back {
+            transform: rotateY(180deg);
+            border-radius: 2px 0 0 2px;
+            border-left: 1px solid #f0f0f0;
+        }
+
+        .page.flipped {
+            transform: rotateY(-180deg);
+            z-index: 2;
+        }
+
+        canvas {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: contain;
+        }
+
+        .book::before {
+            content: '';
+            position: absolute;
+            width: 1px;
+            height: 100%;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.05);
+            z-index: 20;
+            box-shadow: 0 0 8px rgba(0,0,0,0.1);
+        }
+
+        .floating-controls {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            background: rgba(255,255,255,0.85);
+            padding: 8px 24px;
+            border-radius: 999px;
+            display: flex;
+            align-items: center;
+            gap: 25px;
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--accent-gold);
+            color: var(--accent-gold);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.08);
+        }
+
+        .loading-overlay {
+            position: fixed;
+            inset: 0;
+            background: #fdfbf7;
+            z-index: 200;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            text-align: center;
+        }
+
+        .wedding-title {
+            position: fixed;
+            top: 25px;
+            width: 100%;
+            text-align: center;
+            z-index: 5;
+            letter-spacing: 0.3em;
+            color: var(--accent-gold);
+            font-size: 1rem;
+            text-transform: uppercase;
+            font-weight: 300;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="viewer-ui">
+        <div class="wedding-title">Our Wedding Story</div>
+
+        <div class="book-container">
+            <div class="book" id="book"></div>
+        </div>
+
+        <div class="floating-controls">
+            <button id="prev-btn" aria-label="前のページ">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span id="page-info" class="font-serif text-lg min-w-[60px] text-center">0 / 0</span>
+            <button id="next-btn" aria-label="次のページ">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading Screen -->
+    <div id="loading" class="loading-overlay">
+        <div id="loading-spinner" class="animate-pulse mb-4 text-amber-700 font-serif italic text-xl">Loading your story...</div>
+        <div id="error-message" class="hidden text-red-500 px-10">
+            <p class="font-bold mb-2">PDFが見つかりません</p>
+            <p class="text-xs">リポジトリ内に "book.pdf" が配置されているか確認してください。</p>
+        </div>
+    </div>
+
+    <script>
+        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+        // ==========================================
+        // GitHubにアップロードしたPDFのファイル名
+        // index.html と同じ場所に置いてください
+        // ==========================================
+        const PDF_PATH = './book.pdf'; 
+
+        const bookElement = document.getElementById('book');
+        const loading = document.getElementById('loading');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const errorMessage = document.getElementById('error-message');
+        const pageInfo = document.getElementById('page-info');
+        const prevBtn = document.getElementById('prev-btn');
+        const nextBtn = document.getElementById('next-btn');
+
+        let totalPages = 0;
+        let currentPage = 0; 
+        let pagesElements = [];
+
+        window.onload = () => {
+            loadPdf(PDF_PATH);
+        };
+
+        async function loadPdf(path) {
+            try {
+                const loadingTask = pdfjsLib.getDocument(path);
+                
+                loadingTask.onProgress = (progress) => {
+                    if (progress.total > 0) {
+                        const percent = Math.round((progress.loaded / progress.total) * 100);
+                        loadingSpinner.textContent = `Loading... ${percent}%`;
+                    }
+                };
+
+                const pdf = await loadingTask.promise;
+                totalPages = pdf.numPages;
+                
+                bookElement.innerHTML = '';
+                pagesElements = [];
+
+                const renderPage = async (num) => {
+                    const page = await pdf.getPage(num);
+                    // モバイルとデスクトップで解像度を調整
+                    const scale = window.devicePixelRatio > 1 ? 1.5 : 2.0;
+                    const viewport = page.getViewport({ scale });
+                    const canvas = document.createElement('canvas');
+                    const context = canvas.getContext('2d');
+                    canvas.height = viewport.height;
+                    canvas.width = viewport.width;
+                    
+                    await page.render({ 
+                        canvasContext: context, 
+                        viewport: viewport,
+                        intent: 'display'
+                    }).promise;
+                    
+                    return canvas;
+                };
+
+                // ページ生成ループ
+                for (let i = 1; i <= totalPages; i += 2) {
+                    const pageDiv = document.createElement('div');
+                    pageDiv.className = 'page';
+                    pageDiv.style.zIndex = Math.floor((totalPages - i) / 2);
+
+                    // 表側 (奇数ページ)
+                    const front = document.createElement('div');
+                    front.className = 'page-content page-front';
+                    const canvasFront = await renderPage(i);
+                    front.appendChild(canvasFront);
+                    pageDiv.appendChild(front);
+
+                    // 裏側 (偶数ページ)
+                    const back = document.createElement('div');
+                    back.className = 'page-content page-back';
+                    if (i + 1 <= totalPages) {
+                        const canvasBack = await renderPage(i + 1);
+                        back.appendChild(canvasBack);
+                    } else {
+                        // 最終ページが奇数の場合の白紙
+                        back.innerHTML = '<div class="text-stone-300 font-serif italic text-sm">Best Wishes</div>';
+                    }
+                    pageDiv.appendChild(back);
+
+                    // クリックイベント
+                    pageDiv.onclick = (e) => {
+                        const isFlipped = pageDiv.classList.contains('flipped');
+                        if (isFlipped) {
+                            flipBack(Math.floor(i / 2));
+                        } else {
+                            flipForward(Math.floor(i / 2));
+                        }
+                    };
+
+                    bookElement.appendChild(pageDiv);
+                    pagesElements.push(pageDiv);
+                }
+
+                updatePageInfo();
+                loading.style.display = 'none';
+            } catch (err) {
+                console.error("PDF Load Error: ", err);
+                loadingSpinner.classList.add('hidden');
+                errorMessage.classList.remove('hidden');
+            }
+        }
+
+        function flipForward(index) {
+            if (index < pagesElements.length) {
+                pagesElements[index].classList.add('flipped');
+                pagesElements[index].style.zIndex = 100 + index;
+                currentPage = index + 1;
+                updatePageInfo();
+            }
+        }
+
+        function flipBack(index) {
+            if (index >= 0) {
+                pagesElements[index].classList.remove('flipped');
+                pagesElements[index].style.zIndex = Math.floor((totalPages - (index * 2 + 1)) / 2);
+                currentPage = index;
+                updatePageInfo();
+            }
+        }
+
+        function updatePageInfo() {
+            const currentDisplay = currentPage * 2;
+            pageInfo.textContent = `${Math.min(currentDisplay + 1, totalPages)} / ${totalPages}`;
+        }
+
+        prevBtn.onclick = (e) => { 
+            e.stopPropagation(); 
+            if (currentPage > 0) flipBack(currentPage - 1); 
+        };
+        nextBtn.onclick = (e) => { 
+            e.stopPropagation(); 
+            if (currentPage < pagesElements.length) flipForward(currentPage); 
+        };
+
+        // キーボード操作対応
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowRight') nextBtn.click();
+            if (e.key === 'ArrowLeft') prevBtn.click();
+        });
+    </script>
+</body>
+</html>
