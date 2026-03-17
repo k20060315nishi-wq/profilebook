@@ -30,7 +30,6 @@
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
-            transition: opacity 0.3s ease;
         }
 
         .touch-zone {
@@ -49,9 +48,9 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 100;
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(0, 0, 0, 0.5);
             color: white;
-            padding: 8px 20px;
+            padding: 8px 24px;
             border-radius: 999px;
             font-family: 'serif';
             font-size: 14px;
@@ -59,7 +58,7 @@
             pointer-events: none;
             transition: opacity 1s ease;
             opacity: 0;
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(8px);
         }
 
         #page-overlay.show {
@@ -109,13 +108,13 @@
     </div>
 
     <div id="page-overlay">
-        <span id="page-num">0</span> / <span id="total-pages">0</span>
+        <span id="page-display">0</span> / <span id="total-pages">0</span>
     </div>
 
     <div id="loading" class="loading-overlay">
         <div id="loading-content">
             <div class="spinner mb-4 mx-auto"></div>
-            <div class="text-stone-500 font-serif italic">Loading...</div>
+            <div class="text-stone-500 font-serif italic text-lg">Loading your story...</div>
         </div>
         <div id="error-ui">
             <p class="font-bold mb-2">PDFを読み込めませんでした</p>
@@ -124,13 +123,13 @@
     </div>
 
     <script>
-        // Web Workerの設定
         pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
         const PDF_PATH = './book.pdf';
 
         let pdfDoc = null;
-        let pageNum = 1;
+        let pageNum = 1; // 現在の開始ページ番号
+        let isSpread = false; // 見開きモードかどうか
         let pageRendering = false;
         let pageNumPending = null;
         let overlayTimeout = null;
@@ -152,23 +151,69 @@
             pageRendering = true;
             
             try {
-                const page = await pdfDoc.getPage(num);
-                const viewportOrig = page.getViewport({ scale: 1 });
+                // 画面の向きで見開きか1ページかを判定
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
-                
-                const scale = Math.min(screenWidth / viewportOrig.width, screenHeight / viewportOrig.height) * (window.devicePixelRatio || 1);
-                const viewport = page.getViewport({ scale });
+                isSpread = screenWidth > screenHeight;
 
-                canvas.height = viewport.height;
-                canvas.width = viewport.width;
+                // ページ番号の補正（見開き時は必ず偶数・奇数のペアになるように調整）
+                // 1ページ目は表紙なので単独、2ページ目以降を見開きにするのが一般的ですが
+                // シンプルに「2ページずつ」のロジックにします
+                if (isSpread && num > 1 && num % 2 !== 0) {
+                    num--; // 奇数ページから始まったら一つ戻す
+                }
+                pageNum = num;
 
-                const renderContext = {
-                    canvasContext: ctx,
-                    viewport: viewport
-                };
+                const page1 = await pdfDoc.getPage(num);
+                let viewport1 = page1.getViewport({ scale: 1 });
                 
-                await page.render(renderContext).promise;
+                let renderWidth, renderHeight, scale;
+
+                if (isSpread && num < pdfDoc.numPages) {
+                    // 見開き表示
+                    const page2 = await pdfDoc.getPage(num + 1);
+                    const viewport2 = page2.getViewport({ scale: 1 });
+
+                    // 2枚並べた時の合計サイズ
+                    const totalWidth = viewport1.width + viewport2.width;
+                    const maxHeight = Math.max(viewport1.height, viewport2.height);
+
+                    scale = Math.min(screenWidth / totalWidth, screenHeight / maxHeight) * (window.devicePixelRatio || 1);
+                    
+                    canvas.width = totalWidth * scale;
+                    canvas.height = maxHeight * scale;
+
+                    // 1枚目を描画
+                    await page1.render({
+                        canvasContext: ctx,
+                        viewport: page1.getViewport({ scale: scale })
+                    }).promise;
+
+                    // 2枚目を描画（横にずらして配置）
+                    ctx.save();
+                    ctx.translate(viewport1.width * scale, 0);
+                    await page2.render({
+                        canvasContext: ctx,
+                        viewport: page2.getViewport({ scale: scale })
+                    }).promise;
+                    ctx.restore();
+
+                    document.getElementById('page-display').textContent = `${num}-${num + 1}`;
+                } else {
+                    // 1ページ表示
+                    scale = Math.min(screenWidth / viewport1.width, screenHeight / viewport1.height) * (window.devicePixelRatio || 1);
+                    const viewport = page1.getViewport({ scale });
+
+                    canvas.width = viewport.width;
+                    canvas.height = viewport.height;
+
+                    await page1.render({
+                        canvasContext: ctx,
+                        viewport: viewport
+                    }).promise;
+
+                    document.getElementById('page-display').textContent = num;
+                }
             } catch (err) {
                 console.error('Render error:', err);
             }
@@ -179,7 +224,6 @@
                 pageNumPending = null;
             }
 
-            document.getElementById('page-num').textContent = num;
             showPageOverlay();
         }
 
@@ -193,20 +237,25 @@
 
         function onPrevPage() {
             if (!pdfDoc || pageNum <= 1) return;
-            pageNum--;
+            // 見開き時は2ページ戻る
+            const step = isSpread && pageNum > 1 ? 2 : 1;
+            pageNum = Math.max(1, pageNum - step);
             queueRenderPage(pageNum);
         }
 
         function onNextPage() {
             if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
-            pageNum++;
+            // 見開き時は2ページ進む
+            const step = isSpread ? 2 : 1;
+            if (pageNum + step > pdfDoc.numPages) {
+                if (isSpread) return; // 見開きで次がないなら止まる
+            }
+            pageNum += step;
             queueRenderPage(pageNum);
         }
 
-        // 初期化処理
         window.addEventListener('load', async () => {
             try {
-                // getDocumentの引数をオブジェクト形式に修正
                 const loadingTask = pdfjsLib.getDocument({
                     url: PDF_PATH,
                     cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
