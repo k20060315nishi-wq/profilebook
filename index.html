@@ -24,12 +24,47 @@
             justify-content: center;
             align-items: center;
             touch-action: none;
+            perspective: 1200px;
+        }
+
+        /* アニメーション用のラッパー */
+        #canvas-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            height: 100%;
+            transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.6s ease;
+        }
+
+        /* めくるようなアニメーションのクラス */
+        .page-flip-next {
+            animation: flipNext 0.6s ease-in-out;
+        }
+
+        .page-flip-prev {
+            animation: flipPrev 0.6s ease-in-out;
+        }
+
+        @keyframes flipNext {
+            0% { transform: translateX(0) rotateY(0); opacity: 1; }
+            45% { transform: translateX(-50%) rotateY(-20deg); opacity: 0.5; }
+            55% { transform: translateX(50%) rotateY(20deg); opacity: 0.5; }
+            100% { transform: translateX(0) rotateY(0); opacity: 1; }
+        }
+
+        @keyframes flipPrev {
+            0% { transform: translateX(0) rotateY(0); opacity: 1; }
+            45% { transform: translateX(50%) rotateY(20deg); opacity: 0.5; }
+            55% { transform: translateX(-50%) rotateY(-20deg); opacity: 0.5; }
+            100% { transform: translateX(0) rotateY(0); opacity: 1; }
         }
 
         #pdf-canvas {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
+            box-shadow: 0 0 30px rgba(0,0,0,0.5);
         }
 
         .touch-zone {
@@ -37,7 +72,7 @@
             top: 0;
             bottom: 0;
             width: 30%;
-            z-index: 50;
+            z-index: 100;
         }
         #prev-zone { left: 0; }
         #next-zone { right: 0; }
@@ -47,7 +82,7 @@
             bottom: 40px;
             left: 50%;
             transform: translateX(-50%);
-            z-index: 100;
+            z-index: 150;
             background: rgba(0, 0, 0, 0.5);
             color: white;
             padding: 8px 24px;
@@ -104,7 +139,9 @@
     <div id="viewer-container">
         <div id="prev-zone" class="touch-zone"></div>
         <div id="next-zone" class="touch-zone"></div>
-        <canvas id="pdf-canvas"></canvas>
+        <div id="canvas-wrapper">
+            <canvas id="pdf-canvas"></canvas>
+        </div>
     </div>
 
     <div id="page-overlay">
@@ -128,13 +165,14 @@
         const PDF_PATH = './book.pdf';
 
         let pdfDoc = null;
-        let pageNum = 1; // 現在の開始ページ番号
-        let isSpread = false; // 見開きモードかどうか
+        let pageNum = 1;
+        let isSpread = false;
         let pageRendering = false;
         let pageNumPending = null;
         let overlayTimeout = null;
 
         const canvas = document.getElementById('pdf-canvas');
+        const wrapper = document.getElementById('canvas-wrapper');
         const ctx = canvas.getContext('2d');
         const pageOverlay = document.getElementById('page-overlay');
 
@@ -146,35 +184,43 @@
             }, 2500);
         }
 
-        async function renderPage(num) {
+        async function renderPage(num, direction = null) {
             if (!pdfDoc) return;
             pageRendering = true;
             
+            // アニメーションの開始
+            if (direction === 'next') {
+                wrapper.classList.remove('page-flip-next', 'page-flip-prev');
+                void wrapper.offsetWidth; // リフロー強制
+                wrapper.classList.add('page-flip-next');
+            } else if (direction === 'prev') {
+                wrapper.classList.remove('page-flip-next', 'page-flip-prev');
+                void wrapper.offsetWidth;
+                wrapper.classList.add('page-flip-prev');
+            }
+
             try {
-                // 画面の向きで見開きか1ページかを判定
                 const screenWidth = window.innerWidth;
                 const screenHeight = window.innerHeight;
                 isSpread = screenWidth > screenHeight;
 
-                // ページ番号の補正（見開き時は必ず偶数・奇数のペアになるように調整）
-                // 1ページ目は表紙なので単独、2ページ目以降を見開きにするのが一般的ですが
-                // シンプルに「2ページずつ」のロジックにします
                 if (isSpread && num > 1 && num % 2 !== 0) {
-                    num--; // 奇数ページから始まったら一つ戻す
+                    num--;
                 }
                 pageNum = num;
 
                 const page1 = await pdfDoc.getPage(num);
                 let viewport1 = page1.getViewport({ scale: 1 });
                 
-                let renderWidth, renderHeight, scale;
+                let scale;
+
+                // アニメーションのタイミングに合わせるための遅延（少しだけ描画を遅らせてスムーズに見せる）
+                if (direction) await new Promise(r => setTimeout(r, 300));
 
                 if (isSpread && num < pdfDoc.numPages) {
-                    // 見開き表示
                     const page2 = await pdfDoc.getPage(num + 1);
                     const viewport2 = page2.getViewport({ scale: 1 });
 
-                    // 2枚並べた時の合計サイズ
                     const totalWidth = viewport1.width + viewport2.width;
                     const maxHeight = Math.max(viewport1.height, viewport2.height);
 
@@ -183,13 +229,11 @@
                     canvas.width = totalWidth * scale;
                     canvas.height = maxHeight * scale;
 
-                    // 1枚目を描画
                     await page1.render({
                         canvasContext: ctx,
                         viewport: page1.getViewport({ scale: scale })
                     }).promise;
 
-                    // 2枚目を描画（横にずらして配置）
                     ctx.save();
                     ctx.translate(viewport1.width * scale, 0);
                     await page2.render({
@@ -200,7 +244,6 @@
 
                     document.getElementById('page-display').textContent = `${num}-${num + 1}`;
                 } else {
-                    // 1ページ表示
                     scale = Math.min(screenWidth / viewport1.width, screenHeight / viewport1.height) * (window.devicePixelRatio || 1);
                     const viewport = page1.getViewport({ scale });
 
@@ -227,31 +270,26 @@
             showPageOverlay();
         }
 
-        function queueRenderPage(num) {
+        function queueRenderPage(num, direction = null) {
             if (pageRendering) {
                 pageNumPending = num;
             } else {
-                renderPage(num);
+                renderPage(num, direction);
             }
         }
 
         function onPrevPage() {
-            if (!pdfDoc || pageNum <= 1) return;
-            // 見開き時は2ページ戻る
+            if (!pdfDoc || pageNum <= 1 || pageRendering) return;
             const step = isSpread && pageNum > 1 ? 2 : 1;
-            pageNum = Math.max(1, pageNum - step);
-            queueRenderPage(pageNum);
+            const nextNum = Math.max(1, pageNum - step);
+            queueRenderPage(nextNum, 'prev');
         }
 
         function onNextPage() {
-            if (!pdfDoc || pageNum >= pdfDoc.numPages) return;
-            // 見開き時は2ページ進む
+            if (!pdfDoc || pageNum >= pdfDoc.numPages || pageRendering) return;
             const step = isSpread ? 2 : 1;
-            if (pageNum + step > pdfDoc.numPages) {
-                if (isSpread) return; // 見開きで次がないなら止まる
-            }
-            pageNum += step;
-            queueRenderPage(pageNum);
+            if (pageNum + step > pdfDoc.numPages && isSpread) return;
+            queueRenderPage(pageNum + step, 'next');
         }
 
         window.addEventListener('load', async () => {
@@ -291,7 +329,12 @@
         }, {passive: true});
 
         window.addEventListener('resize', () => {
-            if (pdfDoc) queueRenderPage(pageNum);
+            if (pdfDoc) renderPage(pageNum);
+        });
+
+        // アニメーション終了時にクラスを削除
+        wrapper.addEventListener('animationend', () => {
+            wrapper.classList.remove('page-flip-next', 'page-flip-prev');
         });
 
     </script>
