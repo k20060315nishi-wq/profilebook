@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Wedding Profile Book</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <style>
         body, html {
             margin: 0;
@@ -24,54 +23,59 @@
             justify-content: center;
             align-items: center;
             touch-action: none;
-            perspective: 1200px;
+            perspective: 1500px;
         }
 
-        /* アニメーション用のラッパー */
-        #canvas-wrapper {
+        #book-wrapper {
+            position: relative;
             display: flex;
             justify-content: center;
             align-items: center;
             width: 100%;
             height: 100%;
-            transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1), opacity 0.6s ease;
+            transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1);
         }
 
-        /* めくるようなアニメーションのクラス */
-        .page-flip-next {
-            animation: flipNext 0.6s ease-in-out;
+        .page-container {
+            max-width: 95%;
+            max-height: 90%;
+            box-shadow: 0 0 50px rgba(0,0,0,0.7);
+            display: flex;
+            background: #222;
         }
 
-        .page-flip-prev {
-            animation: flipPrev 0.6s ease-in-out;
+        .page-img {
+            height: auto;
+            max-height: 90vh;
+            width: auto;
+            max-width: 100%;
+            object-fit: contain;
+            display: block;
         }
+
+        /* めくるアニメーション */
+        .flip-next { animation: flipNext 0.6s ease-in-out; }
+        .flip-prev { animation: flipPrev 0.6s ease-in-out; }
 
         @keyframes flipNext {
             0% { transform: translateX(0) rotateY(0); opacity: 1; }
-            45% { transform: translateX(-50%) rotateY(-20deg); opacity: 0.5; }
-            55% { transform: translateX(50%) rotateY(20deg); opacity: 0.5; }
+            45% { transform: translateX(-30%) rotateY(-20deg); opacity: 0.7; }
+            55% { transform: translateX(30%) rotateY(20deg); opacity: 0.7; }
             100% { transform: translateX(0) rotateY(0); opacity: 1; }
         }
 
         @keyframes flipPrev {
             0% { transform: translateX(0) rotateY(0); opacity: 1; }
-            45% { transform: translateX(50%) rotateY(20deg); opacity: 0.5; }
-            55% { transform: translateX(-50%) rotateY(-20deg); opacity: 0.5; }
+            45% { transform: translateX(30%) rotateY(20deg); opacity: 0.7; }
+            55% { transform: translateX(-30%) rotateY(-20deg); opacity: 0.7; }
             100% { transform: translateX(0) rotateY(0); opacity: 1; }
-        }
-
-        #pdf-canvas {
-            max-width: 100%;
-            max-height: 100%;
-            object-fit: contain;
-            box-shadow: 0 0 30px rgba(0,0,0,0.5);
         }
 
         .touch-zone {
             position: absolute;
             top: 0;
             bottom: 0;
-            width: 30%;
+            width: 35%;
             z-index: 100;
         }
         #prev-zone { left: 0; }
@@ -79,58 +83,19 @@
 
         #page-overlay {
             position: fixed;
-            bottom: 40px;
+            bottom: 30px;
             left: 50%;
             transform: translateX(-50%);
             z-index: 150;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(0, 0, 0, 0.6);
             color: white;
-            padding: 8px 24px;
+            padding: 6px 20px;
             border-radius: 999px;
             font-family: 'serif';
-            font-size: 14px;
+            font-size: 13px;
             letter-spacing: 0.1em;
             pointer-events: none;
-            transition: opacity 1s ease;
-            opacity: 0;
             backdrop-filter: blur(8px);
-        }
-
-        #page-overlay.show {
-            opacity: 1;
-            transition: opacity 0.2s ease;
-        }
-
-        .loading-overlay {
-            position: fixed;
-            inset: 0;
-            background: #fdfbf7;
-            z-index: 200;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            text-align: center;
-        }
-
-        .spinner {
-            width: 40px;
-            height: 40px;
-            border: 3px solid rgba(212, 175, 55, 0.3);
-            border-top: 3px solid #d4af37;
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        #error-ui {
-            display: none;
-            color: #ef4444;
-            padding: 20px;
         }
     </style>
 </head>
@@ -139,203 +104,126 @@
     <div id="viewer-container">
         <div id="prev-zone" class="touch-zone"></div>
         <div id="next-zone" class="touch-zone"></div>
-        <div id="canvas-wrapper">
-            <canvas id="pdf-canvas"></canvas>
+        
+        <div id="book-wrapper">
+            <div class="page-container" id="page-display-container">
+                <!-- 画像がここに動的に挿入されます -->
+                <img id="img-left" class="page-img" src="" alt="">
+                <img id="img-right" class="page-img" src="" alt="">
+            </div>
         </div>
     </div>
 
     <div id="page-overlay">
-        <span id="page-display">0</span> / <span id="total-pages">0</span>
-    </div>
-
-    <div id="loading" class="loading-overlay">
-        <div id="loading-content">
-            <div class="spinner mb-4 mx-auto"></div>
-            <div class="text-stone-500 font-serif italic text-lg">Loading your story...</div>
-        </div>
-        <div id="error-ui">
-            <p class="font-bold mb-2">PDFを読み込めませんでした</p>
-            <p class="text-xs text-stone-500">book.pdfがGitHubの正しい場所に保存されているか確認してください。</p>
-        </div>
+        <span id="page-label">1</span> / <span id="total-pages">--</span>
     </div>
 
     <script>
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+        /**
+         * 設定項目
+         */
+        const TOTAL_PAGES = 18; // あなたのPDFの総ページ数に変更してください
+        const IMAGE_PREFIX = 'page'; // ファイル名の先頭 (例: page1.jpg, page2.jpgなら 'page')
+        const IMAGE_EXT = '.jpg';    // 拡張子
 
-        const PDF_PATH = './book1.pdf';
-
-        let pdfDoc = null;
-        let pageNum = 1;
+        let currentPage = 1;
         let isSpread = false;
-        let pageRendering = false;
-        let pageNumPending = null;
-        let overlayTimeout = null;
+        let isAnimating = false;
 
-        const canvas = document.getElementById('pdf-canvas');
-        const wrapper = document.getElementById('canvas-wrapper');
-        const ctx = canvas.getContext('2d');
-        const pageOverlay = document.getElementById('page-overlay');
+        const wrapper = document.getElementById('book-wrapper');
+        const imgLeft = document.getElementById('img-left');
+        const imgRight = document.getElementById('img-right');
+        const pageLabel = document.getElementById('page-label');
+        const totalLabel = document.getElementById('total-pages');
 
-        function showPageOverlay() {
-            pageOverlay.classList.add('show');
-            if (overlayTimeout) clearTimeout(overlayTimeout);
-            overlayTimeout = setTimeout(() => {
-                pageOverlay.classList.remove('show');
-            }, 2500);
-        }
+        totalLabel.textContent = TOTAL_PAGES;
 
-        async function renderPage(num, direction = null) {
-            if (!pdfDoc) return;
-            pageRendering = true;
-            
-            // アニメーションの開始
-            if (direction === 'next') {
-                wrapper.classList.remove('page-flip-next', 'page-flip-prev');
-                void wrapper.offsetWidth; // リフロー強制
-                wrapper.classList.add('page-flip-next');
-            } else if (direction === 'prev') {
-                wrapper.classList.remove('page-flip-next', 'page-flip-prev');
-                void wrapper.offsetWidth;
-                wrapper.classList.add('page-flip-prev');
+        function updateDisplay() {
+            const screenWidth = window.innerWidth;
+            const screenHeight = window.innerHeight;
+            isSpread = screenWidth > screenHeight;
+
+            // ページ番号の正規化
+            if (isSpread && currentPage > 1 && currentPage % 2 !== 0) {
+                currentPage--;
             }
 
-            try {
-                const screenWidth = window.innerWidth;
-                const screenHeight = window.innerHeight;
-                isSpread = screenWidth > screenHeight;
-
-                if (isSpread && num > 1 && num % 2 !== 0) {
-                    num--;
-                }
-                pageNum = num;
-
-                const page1 = await pdfDoc.getPage(num);
-                let viewport1 = page1.getViewport({ scale: 1 });
+            if (isSpread && currentPage < TOTAL_PAGES) {
+                // 見開きモード
+                imgLeft.src = `${IMAGE_PREFIX}${currentPage}${IMAGE_EXT}`;
+                imgRight.src = `${IMAGE_PREFIX}${currentPage + 1}${IMAGE_EXT}`;
+                imgRight.style.display = 'block';
+                pageLabel.textContent = (currentPage === 1) ? '1' : `${currentPage}-${currentPage + 1}`;
                 
-                let scale;
-
-                // アニメーションのタイミングに合わせるための遅延（少しだけ描画を遅らせてスムーズに見せる）
-                if (direction) await new Promise(r => setTimeout(r, 300));
-
-                if (isSpread && num < pdfDoc.numPages) {
-                    const page2 = await pdfDoc.getPage(num + 1);
-                    const viewport2 = page2.getViewport({ scale: 1 });
-
-                    const totalWidth = viewport1.width + viewport2.width;
-                    const maxHeight = Math.max(viewport1.height, viewport2.height);
-
-                    scale = Math.min(screenWidth / totalWidth, screenHeight / maxHeight) * (window.devicePixelRatio || 1);
-                    
-                    canvas.width = totalWidth * scale;
-                    canvas.height = maxHeight * scale;
-
-                    await page1.render({
-                        canvasContext: ctx,
-                        viewport: page1.getViewport({ scale: scale })
-                    }).promise;
-
-                    ctx.save();
-                    ctx.translate(viewport1.width * scale, 0);
-                    await page2.render({
-                        canvasContext: ctx,
-                        viewport: page2.getViewport({ scale: scale })
-                    }).promise;
-                    ctx.restore();
-
-                    document.getElementById('page-display').textContent = `${num}-${num + 1}`;
-                } else {
-                    scale = Math.min(screenWidth / viewport1.width, screenHeight / viewport1.height) * (window.devicePixelRatio || 1);
-                    const viewport = page1.getViewport({ scale });
-
-                    canvas.width = viewport.width;
-                    canvas.height = viewport.height;
-
-                    await page1.render({
-                        canvasContext: ctx,
-                        viewport: viewport
-                    }).promise;
-
-                    document.getElementById('page-display').textContent = num;
+                // 1ページ目（表紙）だけは見開きでも中央に置きたい場合の処理
+                if (currentPage === 1) {
+                    imgRight.style.display = 'none';
+                    pageLabel.textContent = '1';
                 }
-            } catch (err) {
-                console.error('Render error:', err);
-            }
-            
-            pageRendering = false;
-            if (pageNumPending !== null) {
-                renderPage(pageNumPending);
-                pageNumPending = null;
-            }
-
-            showPageOverlay();
-        }
-
-        function queueRenderPage(num, direction = null) {
-            if (pageRendering) {
-                pageNumPending = num;
             } else {
-                renderPage(num, direction);
+                // 1ページモード
+                imgLeft.src = `${IMAGE_PREFIX}${currentPage}${IMAGE_EXT}`;
+                imgRight.style.display = 'none';
+                pageLabel.textContent = currentPage;
             }
         }
 
-        function onPrevPage() {
-            if (!pdfDoc || pageNum <= 1 || pageRendering) return;
-            const step = isSpread && pageNum > 1 ? 2 : 1;
-            const nextNum = Math.max(1, pageNum - step);
-            queueRenderPage(nextNum, 'prev');
-        }
+        function navigate(direction) {
+            if (isAnimating) return;
 
-        function onNextPage() {
-            if (!pdfDoc || pageNum >= pdfDoc.numPages || pageRendering) return;
-            const step = isSpread ? 2 : 1;
-            if (pageNum + step > pdfDoc.numPages && isSpread) return;
-            queueRenderPage(pageNum + step, 'next');
-        }
+            let nextNum = currentPage;
+            const step = isSpread && currentPage > 1 ? 2 : 1;
 
-        window.addEventListener('load', async () => {
-            try {
-                const loadingTask = pdfjsLib.getDocument({
-                    url: PDF_PATH,
-                    cMapUrl: 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/cmaps/',
-                    cMapPacked: true,
-                });
-
-                pdfDoc = await loadingTask.promise;
-                document.getElementById('total-pages').textContent = pdfDoc.numPages;
+            if (direction === 'next') {
+                if (currentPage >= TOTAL_PAGES) return;
+                nextNum = currentPage + step;
+                if (nextNum > TOTAL_PAGES) nextNum = TOTAL_PAGES;
                 
-                await renderPage(pageNum);
-                document.getElementById('loading').style.display = 'none';
-            } catch (err) {
-                console.error('PDF読み込み失敗:', err);
-                document.getElementById('loading-content').style.display = 'none';
-                document.getElementById('error-ui').style.display = 'block';
+                wrapper.classList.add('flip-next');
+            } else {
+                if (currentPage <= 1) return;
+                nextNum = Math.max(1, currentPage - step);
+                
+                wrapper.classList.add('flip-prev');
             }
-        });
 
-        document.getElementById('prev-zone').addEventListener('click', onPrevPage);
-        document.getElementById('next-zone').addEventListener('click', onNextPage);
-        
+            isAnimating = true;
+            
+            // アニメーションの中間地点で画像を差し替える
+            setTimeout(() => {
+                currentPage = nextNum;
+                updateDisplay();
+            }, 300);
+
+            setTimeout(() => {
+                wrapper.classList.remove('flip-next', 'flip-prev');
+                isAnimating = false;
+            }, 600);
+        }
+
+        // イベントリスナー
+        document.getElementById('prev-zone').addEventListener('click', () => navigate('prev'));
+        document.getElementById('next-zone').addEventListener('click', () => navigate('next'));
+
+        window.addEventListener('resize', updateDisplay);
+
+        // キーボード操作
         document.addEventListener('keydown', (e) => {
-            if (e.key === 'ArrowLeft') onPrevPage();
-            if (e.key === 'ArrowRight') onNextPage();
+            if (e.key === 'ArrowLeft') navigate('prev');
+            if (e.key === 'ArrowRight') navigate('next');
         });
 
+        // スワイプ操作
         let touchStartX = 0;
         document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX, {passive: true});
         document.addEventListener('touchend', e => {
             const touchEndX = e.changedTouches[0].screenX;
-            if (touchStartX - touchEndX > 50) onNextPage();
-            if (touchEndX - touchStartX > 50) onPrevPage();
+            if (touchStartX - touchEndX > 50) navigate('next');
+            if (touchEndX - touchStartX > 50) navigate('prev');
         }, {passive: true});
 
-        window.addEventListener('resize', () => {
-            if (pdfDoc) renderPage(pageNum);
-        });
-
-        // アニメーション終了時にクラスを削除
-        wrapper.addEventListener('animationend', () => {
-            wrapper.classList.remove('page-flip-next', 'page-flip-prev');
-        });
+        // 初期表示
+        updateDisplay();
 
     </script>
 </body>
