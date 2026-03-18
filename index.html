@@ -34,7 +34,9 @@
             width: 100%;
             height: 100%;
             transform-style: preserve-3d;
-            transition: transform 0.1s ease-out; /* ズーム・移動用 */
+            /* will-change を追加してGPU加速を有効化 */
+            will-change: transform;
+            /* ズーム中は transition を無効にして遅延（ブレ）をなくす */
         }
 
         .page-container {
@@ -60,7 +62,7 @@
             -webkit-user-drag: none;
         }
 
-        /* 紙をめくるアニメーション */
+        /* アニメーション */
         .page-flip-next {
             animation: flipNextPage 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
         }
@@ -87,7 +89,6 @@
             100% { opacity: 1; }
         }
 
-        /* ズーム中はタッチゾーンを無効化（誤作動防止） */
         .touch-zone {
             position: absolute;
             top: 0;
@@ -116,24 +117,6 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
         }
 
-        .img-error {
-            border: 1px solid #333;
-            position: relative;
-            min-width: 200px;
-            min-height: 300px;
-            background: #222;
-        }
-        .img-error::after {
-            content: 'Image not found';
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            color: #666;
-            font-size: 12px;
-        }
-
-        /* 拡大中のヒント */
         #zoom-hint {
             position: fixed;
             top: 20px;
@@ -152,8 +135,8 @@
         
         <div id="book-wrapper">
             <div class="page-container" id="page-display-container">
-                <img id="img-left" class="page-img" src="" alt="Page Left" onerror="this.classList.add('img-error')">
-                <img id="img-right" class="page-img" src="" alt="Page Right" onerror="this.classList.add('img-error')">
+                <img id="img-left" class="page-img" src="" alt="Page Left">
+                <img id="img-right" class="page-img" src="" alt="Page Right">
             </div>
         </div>
     </div>
@@ -173,7 +156,7 @@
         let isSpread = false;
         let isAnimating = false;
 
-        // ズーム関連の変数
+        // ズーム・移動関連
         let scale = 1;
         let pointX = 0;
         let pointY = 0;
@@ -181,6 +164,7 @@
         let startY = 0;
         let isDragging = false;
         let lastTouchDistance = 0;
+        let ticking = false; // requestAnimationFrame制御用
 
         const wrapper = document.getElementById('book-wrapper');
         const container = document.getElementById('page-display-container');
@@ -200,9 +184,6 @@
                 currentPage--;
             }
 
-            imgLeft.classList.remove('img-error');
-            imgRight.classList.remove('img-error');
-
             if (isSpread && currentPage < TOTAL_PAGES && currentPage !== 1) {
                 imgLeft.src = `${IMAGE_PREFIX}${currentPage}${IMAGE_EXT}`;
                 imgRight.src = `${IMAGE_PREFIX}${currentPage + 1}${IMAGE_EXT}`;
@@ -213,7 +194,6 @@
                 imgRight.style.display = 'none';
                 pageLabel.textContent = currentPage;
             }
-            // ページ変更時にズームをリセット
             resetZoom();
         }
 
@@ -221,18 +201,24 @@
             scale = 1;
             pointX = 0;
             pointY = 0;
-            updateTransform();
+            requestUpdate();
         }
 
-        function updateTransform() {
-            wrapper.style.transform = `translate(${pointX}px, ${pointY}px) scale(${scale})`;
-            // ズーム中はページめくりゾーンを反応しにくくする
-            const zones = document.querySelectorAll('.touch-zone');
-            zones.forEach(z => z.style.pointerEvents = scale > 1.1 ? 'none' : 'auto');
+        // requestAnimationFrame を使って描画を最適化
+        function requestUpdate() {
+            if (!ticking) {
+                window.requestAnimationFrame(() => {
+                    wrapper.style.transform = `translate3d(${pointX}px, ${pointY}px, 0) scale(${scale})`;
+                    const zones = document.querySelectorAll('.touch-zone');
+                    zones.forEach(z => z.style.pointerEvents = scale > 1.1 ? 'none' : 'auto');
+                    ticking = false;
+                });
+                ticking = true;
+            }
         }
 
         function navigate(direction) {
-            if (isAnimating || scale > 1.1) return; // 拡大中はめくりを無効化
+            if (isAnimating || scale > 1.1) return;
 
             let nextNum = currentPage;
             const step = isSpread && currentPage > 1 ? 2 : 1;
@@ -263,13 +249,13 @@
             }, 800);
         }
 
-        // --- ズーム & ドラッグ ロジック ---
-
+        // マウスイベント
         document.getElementById('viewer-container').addEventListener('mousedown', (e) => {
             if (scale > 1) {
                 isDragging = true;
                 startX = e.clientX - pointX;
                 startY = e.clientY - pointY;
+                wrapper.style.transition = 'none'; // ドラッグ中はアニメーションをオフに
             }
         });
 
@@ -277,14 +263,15 @@
             if (!isDragging) return;
             pointX = e.clientX - startX;
             pointY = e.clientY - startY;
-            updateTransform();
+            requestUpdate();
         });
 
         window.addEventListener('mouseup', () => {
             isDragging = false;
+            wrapper.style.transition = 'transform 0.2s ease-out';
         });
 
-        // タッチ操作（ピンチ & ドラッグ）
+        // タッチイベント
         document.getElementById('viewer-container').addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
                 lastTouchDistance = Math.hypot(
@@ -295,6 +282,7 @@
                 isDragging = true;
                 startX = e.touches[0].clientX - pointX;
                 startY = e.touches[0].clientY - pointY;
+                wrapper.style.transition = 'none';
             }
         }, {passive: false});
 
@@ -308,46 +296,47 @@
                 const delta = dist / lastTouchDistance;
                 scale = Math.min(Math.max(1, scale * delta), 4);
                 lastTouchDistance = dist;
-                updateTransform();
+                requestUpdate();
             } else if (e.touches.length === 1 && isDragging) {
                 pointX = e.touches[0].clientX - startX;
                 pointY = e.touches[0].clientY - startY;
-                updateTransform();
+                requestUpdate();
             }
         }, {passive: false});
 
         document.getElementById('viewer-container').addEventListener('touchend', () => {
             isDragging = false;
+            wrapper.style.transition = 'transform 0.2s ease-out';
         });
 
-        // ダブルタップでズーム
+        // ダブルタップズーム
         let lastTap = 0;
         document.getElementById('viewer-container').addEventListener('click', (e) => {
             const now = Date.now();
             if (now - lastTap < 300) {
+                wrapper.style.transition = 'transform 0.3s ease-out';
                 if (scale > 1.1) {
                     resetZoom();
                 } else {
                     scale = 2.5;
-                    // タップした位置を中心に持ってくる（簡易）
                     pointX = (window.innerWidth / 2 - e.clientX) * 1.5;
                     pointY = (window.innerHeight / 2 - e.clientY) * 1.5;
-                    updateTransform();
+                    requestUpdate();
                 }
                 e.preventDefault();
             }
             lastTap = now;
         });
 
-        // マウスホイールでズーム
+        // ホイールズーム
         document.getElementById('viewer-container').addEventListener('wheel', (e) => {
             e.preventDefault();
+            wrapper.style.transition = 'transform 0.1s ease-out';
             const delta = e.deltaY > 0 ? 0.9 : 1.1;
             scale = Math.min(Math.max(1, scale * delta), 4);
-            updateTransform();
+            requestUpdate();
         }, {passive: false});
 
-        // --- ページめくりゾーン ---
         document.getElementById('prev-zone').addEventListener('click', () => {
             if (scale <= 1.1) navigate('prev');
         });
