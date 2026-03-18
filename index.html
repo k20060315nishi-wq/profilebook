@@ -41,7 +41,7 @@
             max-height: 90%;
             box-shadow: 0 0 50px rgba(0,0,0,0.7);
             display: flex;
-            background: #222;
+            background: #111;
         }
 
         .page-img {
@@ -51,9 +51,10 @@
             max-width: 100%;
             object-fit: contain;
             display: block;
+            background-color: #111;
         }
 
-        /* めくるアニメーション */
+        /* アニメーション */
         .flip-next { animation: flipNext 0.6s ease-in-out; }
         .flip-prev { animation: flipPrev 0.6s ease-in-out; }
 
@@ -97,6 +98,23 @@
             pointer-events: none;
             backdrop-filter: blur(8px);
         }
+
+        /* 画像が読み込めないときのエラー表示 */
+        .img-error {
+            border: 1px solid #333;
+            position: relative;
+            min-width: 200px;
+            min-height: 300px;
+        }
+        .img-error::after {
+            content: 'Image not found';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #666;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -107,9 +125,8 @@
         
         <div id="book-wrapper">
             <div class="page-container" id="page-display-container">
-                <!-- 画像がここに動的に挿入されます -->
-                <img id="img-left" class="page-img" src="" alt="">
-                <img id="img-right" class="page-img" src="" alt="">
+                <img id="img-left" class="page-img" src="" alt="Page Left" onerror="this.classList.add('img-error')">
+                <img id="img-right" class="page-img" src="" alt="Page Right" onerror="this.classList.add('img-error')">
             </div>
         </div>
     </div>
@@ -122,9 +139,9 @@
         /**
          * 設定項目
          */
-        const TOTAL_PAGES = 18; // あなたのPDFの総ページ数に変更してください
-        const IMAGE_PREFIX = 'page'; // ファイル名の先頭 (例: page1.jpg, page2.jpgなら 'page')
-        const IMAGE_EXT = '.jpg';    // 拡張子
+        const TOTAL_PAGES = 18; 
+        const IMAGE_PREFIX = 'page'; // page1.png, page2.png...
+        const IMAGE_EXT = '.png';    // .jpgから.pngに変更しました
 
         let currentPage = 1;
         let isSpread = false;
@@ -148,24 +165,24 @@
                 currentPage--;
             }
 
-            if (isSpread && currentPage < TOTAL_PAGES) {
-                // 見開きモード
+            // エラークラスをリセット
+            imgLeft.classList.remove('img-error');
+            imgRight.classList.remove('img-error');
+
+            if (isSpread && currentPage < TOTAL_PAGES && currentPage !== 1) {
+                // 見開きモード (2ページ目以降)
                 imgLeft.src = `${IMAGE_PREFIX}${currentPage}${IMAGE_EXT}`;
                 imgRight.src = `${IMAGE_PREFIX}${currentPage + 1}${IMAGE_EXT}`;
                 imgRight.style.display = 'block';
-                pageLabel.textContent = (currentPage === 1) ? '1' : `${currentPage}-${currentPage + 1}`;
-                
-                // 1ページ目（表紙）だけは見開きでも中央に置きたい場合の処理
-                if (currentPage === 1) {
-                    imgRight.style.display = 'none';
-                    pageLabel.textContent = '1';
-                }
+                pageLabel.textContent = `${currentPage}-${currentPage + 1}`;
             } else {
-                // 1ページモード
+                // 1ページモード (表紙、またはスマホ縦持ち)
                 imgLeft.src = `${IMAGE_PREFIX}${currentPage}${IMAGE_EXT}`;
                 imgRight.style.display = 'none';
                 pageLabel.textContent = currentPage;
             }
+            
+            console.log(`Now showing: ${imgLeft.src} ${imgRight.style.display !== 'none' ? '& ' + imgRight.src : ''}`);
         }
 
         function navigate(direction) {
@@ -176,20 +193,17 @@
 
             if (direction === 'next') {
                 if (currentPage >= TOTAL_PAGES) return;
-                nextNum = currentPage + step;
+                nextNum = currentPage + (currentPage === 1 ? 1 : step);
                 if (nextNum > TOTAL_PAGES) nextNum = TOTAL_PAGES;
-                
                 wrapper.classList.add('flip-next');
             } else {
                 if (currentPage <= 1) return;
-                nextNum = Math.max(1, currentPage - step);
-                
+                nextNum = Math.max(1, currentPage - (currentPage <= 2 ? 1 : step));
                 wrapper.classList.add('flip-prev');
             }
 
             isAnimating = true;
             
-            // アニメーションの中間地点で画像を差し替える
             setTimeout(() => {
                 currentPage = nextNum;
                 updateDisplay();
@@ -201,19 +215,16 @@
             }, 600);
         }
 
-        // イベントリスナー
         document.getElementById('prev-zone').addEventListener('click', () => navigate('prev'));
         document.getElementById('next-zone').addEventListener('click', () => navigate('next'));
 
         window.addEventListener('resize', updateDisplay);
 
-        // キーボード操作
         document.addEventListener('keydown', (e) => {
             if (e.key === 'ArrowLeft') navigate('prev');
             if (e.key === 'ArrowRight') navigate('next');
         });
 
-        // スワイプ操作
         let touchStartX = 0;
         document.addEventListener('touchstart', e => touchStartX = e.changedTouches[0].screenX, {passive: true});
         document.addEventListener('touchend', e => {
@@ -222,7 +233,7 @@
             if (touchEndX - touchStartX > 50) navigate('prev');
         }, {passive: true});
 
-        // 初期表示
+        // 初期実行
         updateDisplay();
 
     </script>
