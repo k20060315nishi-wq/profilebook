@@ -13,6 +13,7 @@
             height: 100%;
             overflow: hidden;
             background-color: #1a1a1a;
+            font-family: 'Helvetica Neue', Arial, 'Hiragino Kaku Gothic ProN', 'Hiragino Sans', Meiryo, sans-serif;
         }
 
         #viewer-container {
@@ -23,7 +24,7 @@
             justify-content: center;
             align-items: center;
             touch-action: none;
-            perspective: 2000px;
+            overflow: hidden;
         }
 
         #book-wrapper {
@@ -33,67 +34,72 @@
             align-items: center;
             width: 100%;
             height: 100%;
-            transform-style: preserve-3d;
-            /* will-change を追加してGPU加速を有効化 */
             will-change: transform;
-            /* ズーム中は transition を無効にして遅延（ブレ）をなくす */
         }
 
         .page-container {
             position: relative;
             max-width: 95%;
-            max-height: 85%;
+            max-height: 80%;
             display: flex;
-            transform-style: preserve-3d;
+            justify-content: center;
+            align-items: center;
             pointer-events: auto;
         }
 
         .page-img {
             height: auto;
-            max-height: 85vh;
+            max-height: 80vh;
             width: auto;
             max-width: 100%;
             object-fit: contain;
             display: block;
-            box-shadow: 0 5px 25px rgba(0,0,0,0.5);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             background-color: #fff;
-            backface-visibility: hidden;
             user-select: none;
             -webkit-user-drag: none;
+            transition: opacity 0.4s ease-in-out;
         }
 
-        /* アニメーション */
-        .page-flip-next {
-            animation: flipNextPage 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+        /* フェードアニメーション */
+        .page-transition {
+            animation: pageFade 0.5s ease-in-out;
+        }
+        @keyframes pageFade {
+            0% { opacity: 0; transform: scale(0.98); }
+            100% { opacity: 1; transform: scale(1); }
         }
 
-        .page-flip-prev {
-            animation: flipPrevPage 0.8s cubic-bezier(0.45, 0.05, 0.55, 0.95) forwards;
+        /* 操作エリア */
+        .nav-button {
+            position: fixed;
+            bottom: 25px;
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.2);
+            backdrop-filter: blur(10px);
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            z-index: 200;
+            transition: all 0.3s;
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
+        .nav-button:active {
+            transform: scale(0.9);
+            background: rgba(255, 255, 255, 0.4);
+        }
+        #prev-btn { left: 20px; }
+        #next-btn { right: 20px; }
 
-        @keyframes flipNextPage {
-            0% { transform: rotateY(0deg); transform-origin: left; }
-            100% { transform: rotateY(-180deg); transform-origin: left; opacity: 0; }
-        }
-
-        @keyframes flipPrevPage {
-            0% { transform: rotateY(0deg); transform-origin: right; }
-            100% { transform: rotateY(180deg); transform-origin: right; opacity: 0; }
-        }
-
-        .fade-in {
-            animation: fadeInPage 0.8s ease-out forwards;
-        }
-        @keyframes fadeInPage {
-            0% { opacity: 0; }
-            100% { opacity: 1; }
-        }
-
+        /* タッチゾーン（画面の両端） */
         .touch-zone {
             position: absolute;
             top: 0;
             bottom: 0;
-            width: 25%;
+            width: 20%;
             z-index: 100;
         }
         #prev-zone { left: 0; }
@@ -105,31 +111,34 @@
             left: 50%;
             transform: translateX(-50%);
             z-index: 150;
-            background: rgba(255, 255, 255, 0.15);
+            background: rgba(0, 0, 0, 0.5);
             color: white;
             padding: 8px 24px;
             border-radius: 999px;
-            font-family: 'Georgia', serif;
             font-size: 14px;
             letter-spacing: 0.1em;
             pointer-events: none;
             backdrop-filter: blur(10px);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         #zoom-hint {
             position: fixed;
             top: 20px;
-            right: 20px;
-            color: rgba(255,255,255,0.5);
-            font-size: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: rgba(255,255,255,0.4);
+            font-size: 11px;
             pointer-events: none;
+            text-align: center;
+            width: 100%;
         }
     </style>
 </head>
 <body>
 
     <div id="viewer-container">
+        <!-- 透明なタッチゾーン（拡大してない時のみ反応） -->
         <div id="prev-zone" class="touch-zone"></div>
         <div id="next-zone" class="touch-zone"></div>
         
@@ -141,11 +150,19 @@
         </div>
     </div>
 
+    <!-- 操作ボタン -->
+    <button id="prev-btn" class="nav-button">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+    </button>
+    <button id="next-btn" class="nav-button">
+        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+    </button>
+
     <div id="page-overlay">
         <span id="page-label">1</span> / <span id="total-pages">--</span>
     </div>
 
-    <div id="zoom-hint">Double tap to Zoom</div>
+    <div id="zoom-hint">ダブルタップで拡大 / ピンチ操作対応</div>
 
     <script>
         const TOTAL_PAGES = 18; 
@@ -164,7 +181,7 @@
         let startY = 0;
         let isDragging = false;
         let lastTouchDistance = 0;
-        let ticking = false; // requestAnimationFrame制御用
+        let ticking = false;
 
         const wrapper = document.getElementById('book-wrapper');
         const container = document.getElementById('page-display-container');
@@ -175,13 +192,19 @@
 
         totalLabel.textContent = TOTAL_PAGES;
 
-        function updateDisplay() {
+        function updateDisplay(withAnimation = false) {
             const screenWidth = window.innerWidth;
             const screenHeight = window.innerHeight;
             isSpread = screenWidth > screenHeight;
 
             if (isSpread && currentPage > 1 && currentPage % 2 !== 0) {
                 currentPage--;
+            }
+
+            if (withAnimation) {
+                container.classList.remove('page-transition');
+                void container.offsetWidth; // reflow
+                container.classList.add('page-transition');
             }
 
             if (isSpread && currentPage < TOTAL_PAGES && currentPage !== 1) {
@@ -201,16 +224,19 @@
             scale = 1;
             pointX = 0;
             pointY = 0;
+            wrapper.style.transition = 'transform 0.3s ease-out';
             requestUpdate();
         }
 
-        // requestAnimationFrame を使って描画を最適化
         function requestUpdate() {
             if (!ticking) {
                 window.requestAnimationFrame(() => {
                     wrapper.style.transform = `translate3d(${pointX}px, ${pointY}px, 0) scale(${scale})`;
                     const zones = document.querySelectorAll('.touch-zone');
-                    zones.forEach(z => z.style.pointerEvents = scale > 1.1 ? 'none' : 'auto');
+                    const isZoomed = scale > 1.1;
+                    zones.forEach(z => z.style.display = isZoomed ? 'none' : 'block');
+                    document.getElementById('prev-btn').style.opacity = isZoomed ? '0' : '1';
+                    document.getElementById('next-btn').style.opacity = isZoomed ? '0' : '1';
                     ticking = false;
                 });
                 ticking = true;
@@ -226,36 +252,24 @@
             if (direction === 'next') {
                 if (currentPage >= TOTAL_PAGES) return;
                 nextNum = currentPage + (currentPage === 1 ? 1 : step);
-                if (nextNum > TOTAL_PAGES) nextNum = TOTAL_PAGES;
-                container.classList.add('page-flip-next');
             } else {
                 if (currentPage <= 1) return;
                 nextNum = Math.max(1, currentPage - (currentPage <= 2 ? 1 : step));
-                container.classList.add('page-flip-prev');
             }
 
-            isAnimating = true;
-            
-            setTimeout(() => {
+            if (nextNum !== currentPage) {
                 currentPage = nextNum;
-                updateDisplay();
-                container.classList.remove('page-flip-next', 'page-flip-prev');
-                container.classList.add('fade-in');
-            }, 400);
-
-            setTimeout(() => {
-                container.classList.remove('fade-in');
-                isAnimating = false;
-            }, 800);
+                updateDisplay(true);
+            }
         }
 
-        // マウスイベント
+        // マウスドラッグ
         document.getElementById('viewer-container').addEventListener('mousedown', (e) => {
             if (scale > 1) {
                 isDragging = true;
                 startX = e.clientX - pointX;
                 startY = e.clientY - pointY;
-                wrapper.style.transition = 'none'; // ドラッグ中はアニメーションをオフに
+                wrapper.style.transition = 'none';
             }
         });
 
@@ -268,16 +282,16 @@
 
         window.addEventListener('mouseup', () => {
             isDragging = false;
-            wrapper.style.transition = 'transform 0.2s ease-out';
         });
 
-        // タッチイベント
+        // タッチ操作
         document.getElementById('viewer-container').addEventListener('touchstart', (e) => {
             if (e.touches.length === 2) {
                 lastTouchDistance = Math.hypot(
                     e.touches[0].pageX - e.touches[1].pageX,
                     e.touches[0].pageY - e.touches[1].pageY
                 );
+                wrapper.style.transition = 'none';
             } else if (e.touches.length === 1 && scale > 1) {
                 isDragging = true;
                 startX = e.touches[0].clientX - pointX;
@@ -306,15 +320,14 @@
 
         document.getElementById('viewer-container').addEventListener('touchend', () => {
             isDragging = false;
-            wrapper.style.transition = 'transform 0.2s ease-out';
         });
 
-        // ダブルタップズーム
+        // ダブルタップ
         let lastTap = 0;
         document.getElementById('viewer-container').addEventListener('click', (e) => {
             const now = Date.now();
             if (now - lastTap < 300) {
-                wrapper.style.transition = 'transform 0.3s ease-out';
+                wrapper.style.transition = 'transform 0.4s cubic-bezier(0.2, 0, 0.2, 1)';
                 if (scale > 1.1) {
                     resetZoom();
                 } else {
@@ -328,21 +341,11 @@
             lastTap = now;
         });
 
-        // ホイールズーム
-        document.getElementById('viewer-container').addEventListener('wheel', (e) => {
-            e.preventDefault();
-            wrapper.style.transition = 'transform 0.1s ease-out';
-            const delta = e.deltaY > 0 ? 0.9 : 1.1;
-            scale = Math.min(Math.max(1, scale * delta), 4);
-            requestUpdate();
-        }, {passive: false});
-
-        document.getElementById('prev-zone').addEventListener('click', () => {
-            if (scale <= 1.1) navigate('prev');
-        });
-        document.getElementById('next-zone').addEventListener('click', () => {
-            if (scale <= 1.1) navigate('next');
-        });
+        // ボタン・ゾーンクリック
+        document.getElementById('prev-btn').addEventListener('click', () => navigate('prev'));
+        document.getElementById('next-btn').addEventListener('click', () => navigate('next'));
+        document.getElementById('prev-zone').addEventListener('click', () => navigate('prev'));
+        document.getElementById('next-zone').addEventListener('click', () => navigate('next'));
 
         window.addEventListener('resize', updateDisplay);
 
