@@ -14,6 +14,8 @@ body, html {
     background: #000;
     touch-action: none;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 #viewer {
@@ -23,6 +25,7 @@ body, html {
     justify-content: center;
     align-items: center;
     overflow: hidden;
+    perspective: 1000px;
 }
 
 #wrapper {
@@ -31,58 +34,63 @@ body, html {
     display: flex;
     justify-content: center;
     align-items: center;
+    transition: transform 0.1s cubic-bezier(0.2, 0, 0.2, 1); /* 微細な遅延で滑らかさを演出 */
 }
 
 .page img {
     max-width: 100vw;
     max-height: 100vh;
     object-fit: contain;
-    transition: opacity 0.25s ease;
-    box-shadow: 0 0 30px rgba(0,0,0,0.5);
+    transition: opacity 0.3s ease;
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+    pointer-events: none;
 }
 
 .nav {
     position: fixed;
-    bottom: 25px;
-    width: 54px;
-    height: 54px;
+    bottom: 30px;
+    width: 56px;
+    height: 56px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.25);
+    background: rgba(255,255,255,0.2);
     color: white;
-    border: 1px solid rgba(255,255,255,0.4);
-    font-size: 24px;
+    border: 1px solid rgba(255,255,255,0.3);
+    font-size: 22px;
     display: flex;
     justify-content: center;
     align-items: center;
-    backdrop-filter: blur(10px);
-    -webkit-backdrop-filter: blur(10px);
-    z-index: 1000; /* 十分に高い値 */
-    transition: opacity 0.3s, transform 0.2s;
-    touch-action: auto; /* ボタン上ではブラウザのデフォルト動作を許可 */
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
+    z-index: 1000;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
 .nav:active {
-    transform: scale(0.9);
+    transform: scale(0.85);
     background: rgba(255,255,255,0.4);
 }
 
-#prev { left: 20px; }
-#next { right: 20px; }
+#prev { left: 24px; }
+#next { right: 24px; }
 
 #overlay {
     position: fixed;
-    bottom: 30px;
+    top: 30px;
     left: 50%;
     transform: translateX(-50%);
     color: white;
-    background: rgba(0,0,0,0.6);
-    padding: 8px 20px;
-    border-radius: 999px;
-    font-size: 14px;
+    background: rgba(0,0,0,0.5);
+    padding: 6px 16px;
+    border-radius: 20px;
+    font-size: 13px;
+    letter-spacing: 1px;
     opacity: 0;
-    transition: opacity 0.3s;
+    transition: opacity 0.4s;
     pointer-events: none;
     z-index: 900;
+    backdrop-filter: blur(5px);
 }
 </style>
 </head>
@@ -97,8 +105,8 @@ body, html {
     </div>
 </div>
 
-<button id="prev" class="nav" aria-label="Previous page">←</button>
-<button id="next" class="nav" aria-label="Next page">→</button>
+<button id="prev" class="nav">←</button>
+<button id="next" class="nav">→</button>
 
 <div id="overlay">
     <span id="page">1</span> / <span id="total"></span>
@@ -110,8 +118,6 @@ const PREFIX = 'page';
 const EXT = '.png';
 
 let current = 1;
-
-/* 状態管理 */
 let scale = 1;
 let x = 0, y = 0;
 let startX = 0, startY = 0;
@@ -128,7 +134,7 @@ const overlay = document.getElementById('overlay');
 
 document.getElementById('total').textContent = TOTAL;
 
-/* プリロード */
+/* Preload next/prev images */
 const cache = {};
 function preload(n) {
     if (n < 1 || n > TOTAL) return;
@@ -140,46 +146,48 @@ function preload(n) {
     }
 }
 
-/* 描画 */
+/* Page Rendering */
 function render() {
     img.style.opacity = 0;
-    // ページ遷移時は必ずズームをリセット
-    resetZoom();
+    resetZoom(true); // ページ切り替え時はアニメーションありでリセット
 
     setTimeout(() => {
         img.src = `${PREFIX}${current}${EXT}`;
-        img.onload = () => { img.style.opacity = 1; };
+        img.onload = () => {
+            img.style.opacity = 1;
+            showOverlay();
+            preload(current + 1);
+            preload(current - 1);
+        };
         document.getElementById('page').textContent = current;
-        preload(current + 1);
-        preload(current - 1);
-        showOverlay();
-    }, 50);
+    }, 150);
 }
 
 function showOverlay() {
     overlay.style.opacity = 1;
     clearTimeout(window.overlayTimer);
-    window.overlayTimer = setTimeout(() => { overlay.style.opacity = 0; }, 2000);
+    window.overlayTimer = setTimeout(() => { overlay.style.opacity = 0; }, 2500);
 }
 
-function clamp(v, min, max) {
-    return Math.max(min, Math.min(max, v));
+/* Core Transform Logic */
+function update(useClamp = true, animate = false) {
+    if (useClamp) {
+        // ラバーバンド効果（端に到達した時の弾力）をシミュレートする場合はここを調整可能だが
+        // ここでは標準的なクランプを適用
+        const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
+        const limitY = Math.max(0, (img.offsetHeight * scale - window.innerHeight) / 2);
+        x = Math.max(-limitX, Math.min(limitX, x));
+        y = Math.max(-limitY, Math.min(limitY, y));
+    }
+
+    wrapper.style.transition = animate ? 'transform 0.3s cubic-bezier(0.1, 0.7, 0.1, 1)' : 'none';
+    wrapper.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
 }
 
-function update() {
-    const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
-    const limitY = Math.max(0, (img.offsetHeight * scale - window.innerHeight) / 2);
-
-    x = clamp(x, -limitX, limitX);
-    y = clamp(y, -limitY, limitY);
-
-    wrapper.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-}
-
-function resetZoom() {
+function resetZoom(animate = false) {
     scale = 1;
     x = 0; y = 0;
-    update();
+    update(true, animate);
 }
 
 function nav(dir) {
@@ -188,25 +196,22 @@ function nav(dir) {
     render();
 }
 
-/* ボタンイベントの強化 */
-const btns = document.querySelectorAll('.nav');
-btns.forEach(btn => {
-    // touchstartを背後に伝播させない
-    btn.addEventListener('touchstart', (e) => {
-        e.stopPropagation();
-    }, { passive: true });
+/* Event Handlers for Nav Buttons */
+const setupNav = () => {
+    const btns = document.querySelectorAll('.nav');
+    btns.forEach(btn => {
+        btn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+        btn.onclick = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            nav(btn.id === 'next' ? 'next' : 'prev');
+        };
+    });
+};
+setupNav();
 
-    btn.onclick = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const direction = e.currentTarget.id === 'next' ? 'next' : 'prev';
-        nav(direction);
-    };
-});
-
-/* ビューワーのタッチ操作 */
+/* Gesture Logic */
 viewer.addEventListener('touchstart', e => {
-    // ボタン上でのタッチは何もしない（伝播停止しているが一応）
     if (e.target.closest('.nav')) return;
 
     if (e.touches.length === 1) {
@@ -214,7 +219,7 @@ viewer.addEventListener('touchstart', e => {
         startY = e.touches[0].clientY;
         lastX = x;
         lastY = y;
-        isDragging = scale > 1.05;
+        isDragging = scale > 1.01;
     } else if (e.touches.length === 2) {
         isMultiTouch = true;
         isDragging = false;
@@ -225,15 +230,14 @@ viewer.addEventListener('touchstart', e => {
 }, { passive: false });
 
 viewer.addEventListener('touchmove', e => {
-    // 拡大中または2本指操作時は、ブラウザのスクロールやバウンスを防止
-    if (scale > 1.05 || e.touches.length > 1) {
+    if (scale > 1.01 || e.touches.length > 1) {
         e.preventDefault();
     }
 
     if (e.touches.length === 1 && isDragging) {
         x = lastX + (e.touches[0].clientX - startX);
         y = lastY + (e.touches[0].clientY - startY);
-        update();
+        update(false); // ドラッグ中は制限をかけず自由な指への追従を実現
     }
 
     if (e.touches.length === 2) {
@@ -241,22 +245,24 @@ viewer.addEventListener('touchmove', e => {
         const t2 = e.touches[1];
         const midX = (t1.clientX + t2.clientX) / 2;
         const midY = (t1.clientY + t2.clientY) / 2;
-        const dx = t1.clientX - t2.clientX;
-        const dy = t1.clientY - t2.clientY;
-        const dist = Math.hypot(dx, dy);
+        const dist = Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
 
         if (lastDist) {
             const delta = dist / lastDist;
             const prevScale = scale;
-            scale = Math.min(Math.max(1, scale * delta), 4);
+            
+            // 指の動きに敏感に反応させる
+            scale = Math.min(Math.max(0.8, scale * delta), 6);
             
             const factor = scale / prevScale;
             const touchX = midX - window.innerWidth / 2;
             const touchY = midY - window.innerHeight / 2;
             
+            // 指の中点を中心に座標をスケーリング
             x = touchX - (touchX - x) * factor;
             y = touchY - (touchY - y) * factor;
-            update();
+            
+            update(false); 
         }
         lastDist = dist;
     }
@@ -265,47 +271,58 @@ viewer.addEventListener('touchmove', e => {
 viewer.addEventListener('touchend', e => {
     const now = Date.now();
 
+    // 全ての指が離れた、または1本に戻った際に位置を補正
+    if (e.touches.length < 2) {
+        if (scale < 1) {
+            resetZoom(true);
+        } else if (scale > 4) {
+            scale = 4;
+            update(true, true);
+        } else {
+            update(true, true);
+        }
+    }
+
     if (e.changedTouches.length === 1) {
-        // ボタン上での終了判定をスキップ
         if (e.target.closest('.nav')) return;
 
         const endX = e.changedTouches[0].clientX;
-        const endY = e.changedTouches[0].clientY;
         const diffX = endX - startX;
-        const diffY = endY - startY;
+        const diffY = e.changedTouches[0].clientY - startY;
 
-        // ダブルタップ
-        if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 10) {
-            if (scale > 1.05) {
-                resetZoom();
+        // Double Tap
+        if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 15) {
+            if (scale > 1.1) {
+                resetZoom(true);
             } else {
                 const touchX = startX - window.innerWidth / 2;
                 const touchY = startY - window.innerHeight / 2;
-                scale = 2.5;
-                x = -touchX * scale;
-                y = -touchY * scale;
-                update();
+                scale = 3;
+                x = -touchX * (scale - 1);
+                y = -touchY * (scale - 1);
+                update(true, true);
             }
             e.preventDefault();
             isMultiTouch = false;
         } 
-        // スワイプ（等倍時のみ）
-        else if (!isMultiTouch && scale <= 1.05 && Math.abs(diffX) > 60) {
+        // Swipe Navigation
+        else if (!isMultiTouch && scale <= 1.01 && Math.abs(diffX) > 50) {
             diffX < 0 ? nav('next') : nav('prev');
         }
     }
 
     if (e.touches.length === 0) {
-        setTimeout(() => { isMultiTouch = false; }, 100);
+        // マルチタッチフラグの解除に遊びを持たせて誤爆を防止
+        setTimeout(() => { isMultiTouch = false; }, 150);
         isDragging = false;
         lastDist = 0;
     }
     lastTap = now;
 });
 
-/* 初期起動 */
+/* Initialize */
 render();
-window.addEventListener('resize', resetZoom);
+window.addEventListener('resize', () => resetZoom(false));
 </script>
 
 </body>
