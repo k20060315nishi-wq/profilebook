@@ -124,7 +124,7 @@ let lastX = 0, lastY = 0;
 let lastTap = 0;
 let lastDist = 0;
 let isDragging = false;
-let isMultiTouch = false; // 2本指操作中フラグ
+let isMultiTouch = false;
 
 const img = document.getElementById('img');
 const wrapper = document.getElementById('wrapper');
@@ -170,15 +170,13 @@ function clamp(v, min, max) {
 }
 
 function update() {
-    // 拡大された状態での画像サイズを基準に計算
     const rect = img.getBoundingClientRect();
     
-    // 画像が画面より大きい場合、その差分（はみ出し量）を計算
-    // transform-origin: center なので、はみ出し量は片側半分ずつになる
-    const limitX = Math.max(0, (rect.width - window.innerWidth) / 2);
-    const limitY = Math.max(0, (rect.height - window.innerHeight) / 2);
+    // 現在のスケールでの画像のはみ出し量を計算
+    // 画像の元サイズではなく、CSSで画面内に収まっている時のサイズを基準にする
+    const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
+    const limitY = Math.max(0, (img.offsetHeight * scale - window.innerHeight) / 2);
 
-    // 拡大時は移動を反映、等倍時は中央固定
     x = clamp(x, -limitX, limitX);
     y = clamp(y, -limitY, limitY);
 
@@ -193,7 +191,7 @@ function resetZoom() {
 }
 
 function nav(dir) {
-    if (scale > 1.1) return;
+    if (scale > 1.05) return;
     if (dir === 'next') current = current === TOTAL ? 1 : current + 1;
     else current = current === 1 ? TOTAL : current - 1;
     render();
@@ -210,9 +208,8 @@ viewer.addEventListener('touchstart', e => {
         lastX = x;
         lastY = y;
         isDragging = scale > 1.05;
-        // 1本指で開始しても以前のマルチタッチフラグはリセットしない（指を離す瞬間の誤爆防止のため）
     } else if (e.touches.length === 2) {
-        isMultiTouch = true; // 2本指操作開始
+        isMultiTouch = true;
         isDragging = false;
         const dx = e.touches[0].clientX - e.touches[1].clientX;
         const dy = e.touches[0].clientY - e.touches[1].clientY;
@@ -236,7 +233,9 @@ viewer.addEventListener('touchmove', e => {
 
         if (lastDist) {
             const delta = dist / lastDist;
-            scale = Math.min(Math.max(1, scale * delta), 4);
+            const newScale = Math.min(Math.max(1, scale * delta), 4);
+            // ズーム中心を固定する簡易処理
+            scale = newScale;
             update();
         }
         lastDist = dist;
@@ -246,36 +245,43 @@ viewer.addEventListener('touchmove', e => {
 viewer.addEventListener('touchend', e => {
     const now = Date.now();
 
-    // 1本指のスワイプ判定
     if (e.changedTouches.length === 1) {
         const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
         const diffX = endX - startX;
+        const diffY = endY - startY;
 
-        // マルチタッチ操作直後でなく、かつ拡大していない場合のみスワイプを許可
-        if (!isMultiTouch && scale <= 1.05 && Math.abs(diffX) > 60) {
-            diffX < 0 ? nav('next') : nav('prev');
-        }
-
-        // ダブルタップ
-        if (now - lastTap < 300) {
+        // ダブルタップ判定
+        if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 10) {
             if (scale > 1.05) {
                 resetZoom();
             } else {
+                // タップした場所を中心に拡大
                 const rect = img.getBoundingClientRect();
-                const offsetX = startX - (window.innerWidth - rect.width) / 2;
-                const offsetY = startY - (window.innerHeight - rect.height) / 2;
+                // 画面中央からのタップ位置のオフセット
+                const touchX = startX - window.innerWidth / 2;
+                const touchY = startY - window.innerHeight / 2;
+
                 scale = 2.5;
-                x = (rect.width / 2 - offsetX) * (scale - 1);
-                y = (rect.height / 2 - offsetY) * (scale - 1);
+                // タップ位置が中央に来るようにずらす
+                x = -touchX * scale;
+                y = -touchY * scale;
                 update();
             }
             e.preventDefault();
+            // ダブルタップ成立時はマルチタッチフラグ等をリセット
+            isMultiTouch = false;
+        } 
+        // スワイプ判定（マルチタッチ中でない場合のみ）
+        else if (!isMultiTouch && scale <= 1.05 && Math.abs(diffX) > 60) {
+            diffX < 0 ? nav('next') : nav('prev');
         }
     }
 
-    // 全ての指が離れたらフラグをリセット
     if (e.touches.length === 0) {
-        isMultiTouch = false;
+        // 全ての指が離れてから一定時間後にマルチタッチフラグを戻す
+        // 指を離す瞬間のシングルタップ誤爆を防ぐ
+        setTimeout(() => { isMultiTouch = false; }, 100);
         isDragging = false;
         lastDist = 0;
     }
