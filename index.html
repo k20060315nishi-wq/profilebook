@@ -47,22 +47,23 @@ body, html {
     width: 54px;
     height: 54px;
     border-radius: 50%;
-    background: rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.25);
     color: white;
-    border: 1px solid rgba(255,255,255,0.3);
+    border: 1px solid rgba(255,255,255,0.4);
     font-size: 24px;
     display: flex;
     justify-content: center;
     align-items: center;
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    z-index: 100;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 1000; /* 十分に高い値 */
     transition: opacity 0.3s, transform 0.2s;
+    touch-action: auto; /* ボタン上ではブラウザのデフォルト動作を許可 */
 }
 
 .nav:active {
     transform: scale(0.9);
-    background: rgba(255,255,255,0.3);
+    background: rgba(255,255,255,0.4);
 }
 
 #prev { left: 20px; }
@@ -81,13 +82,7 @@ body, html {
     opacity: 0;
     transition: opacity 0.3s;
     pointer-events: none;
-    z-index: 90;
-}
-
-/* ズーム中はボタンを隠す */
-.is-zoomed .nav {
-    opacity: 0;
-    pointer-events: none;
+    z-index: 900;
 }
 </style>
 </head>
@@ -102,8 +97,8 @@ body, html {
     </div>
 </div>
 
-<button id="prev" class="nav">←</button>
-<button id="next" class="nav">→</button>
+<button id="prev" class="nav" aria-label="Previous page">←</button>
+<button id="next" class="nav" aria-label="Next page">→</button>
 
 <div id="overlay">
     <span id="page">1</span> / <span id="total"></span>
@@ -145,9 +140,12 @@ function preload(n) {
     }
 }
 
-/* 表示レンダリング */
+/* 描画 */
 function render() {
     img.style.opacity = 0;
+    // ページ遷移時は必ずズームをリセット
+    resetZoom();
+
     setTimeout(() => {
         img.src = `${PREFIX}${current}${EXT}`;
         img.onload = () => { img.style.opacity = 1; };
@@ -155,8 +153,7 @@ function render() {
         preload(current + 1);
         preload(current - 1);
         showOverlay();
-        resetZoom();
-    }, 100);
+    }, 50);
 }
 
 function showOverlay() {
@@ -170,10 +167,6 @@ function clamp(v, min, max) {
 }
 
 function update() {
-    const rect = img.getBoundingClientRect();
-    
-    // 現在のスケールでの画像のはみ出し量を計算
-    // 画像の元サイズではなく、CSSで画面内に収まっている時のサイズを基準にする
     const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
     const limitY = Math.max(0, (img.offsetHeight * scale - window.innerHeight) / 2);
 
@@ -181,7 +174,6 @@ function update() {
     y = clamp(y, -limitY, limitY);
 
     wrapper.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
-    viewer.classList.toggle('is-zoomed', scale > 1.05);
 }
 
 function resetZoom() {
@@ -191,17 +183,32 @@ function resetZoom() {
 }
 
 function nav(dir) {
-    if (scale > 1.05) return;
     if (dir === 'next') current = current === TOTAL ? 1 : current + 1;
     else current = current === 1 ? TOTAL : current - 1;
     render();
 }
 
-document.getElementById('next').onclick = (e) => { e.stopPropagation(); nav('next'); };
-document.getElementById('prev').onclick = (e) => { e.stopPropagation(); nav('prev'); };
+/* ボタンイベントの強化 */
+const btns = document.querySelectorAll('.nav');
+btns.forEach(btn => {
+    // touchstartを背後に伝播させない
+    btn.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+    }, { passive: true });
 
-/* タッチ操作 */
+    btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const direction = e.currentTarget.id === 'next' ? 'next' : 'prev';
+        nav(direction);
+    };
+});
+
+/* ビューワーのタッチ操作 */
 viewer.addEventListener('touchstart', e => {
+    // ボタン上でのタッチは何もしない（伝播停止しているが一応）
+    if (e.target.closest('.nav')) return;
+
     if (e.touches.length === 1) {
         startX = e.touches[0].clientX;
         startY = e.touches[0].clientY;
@@ -218,7 +225,10 @@ viewer.addEventListener('touchstart', e => {
 }, { passive: false });
 
 viewer.addEventListener('touchmove', e => {
-    if (scale > 1.05 || e.touches.length > 1) e.preventDefault();
+    // 拡大中または2本指操作時は、ブラウザのスクロールやバウンスを防止
+    if (scale > 1.05 || e.touches.length > 1) {
+        e.preventDefault();
+    }
 
     if (e.touches.length === 1 && isDragging) {
         x = lastX + (e.touches[0].clientX - startX);
@@ -227,15 +237,25 @@ viewer.addEventListener('touchmove', e => {
     }
 
     if (e.touches.length === 2) {
-        const dx = e.touches[0].clientX - e.touches[1].clientX;
-        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const t1 = e.touches[0];
+        const t2 = e.touches[1];
+        const midX = (t1.clientX + t2.clientX) / 2;
+        const midY = (t1.clientY + t2.clientY) / 2;
+        const dx = t1.clientX - t2.clientX;
+        const dy = t1.clientY - t2.clientY;
         const dist = Math.hypot(dx, dy);
 
         if (lastDist) {
             const delta = dist / lastDist;
-            const newScale = Math.min(Math.max(1, scale * delta), 4);
-            // ズーム中心を固定する簡易処理
-            scale = newScale;
+            const prevScale = scale;
+            scale = Math.min(Math.max(1, scale * delta), 4);
+            
+            const factor = scale / prevScale;
+            const touchX = midX - window.innerWidth / 2;
+            const touchY = midY - window.innerHeight / 2;
+            
+            x = touchX - (touchX - x) * factor;
+            y = touchY - (touchY - y) * factor;
             update();
         }
         lastDist = dist;
@@ -246,41 +266,36 @@ viewer.addEventListener('touchend', e => {
     const now = Date.now();
 
     if (e.changedTouches.length === 1) {
+        // ボタン上での終了判定をスキップ
+        if (e.target.closest('.nav')) return;
+
         const endX = e.changedTouches[0].clientX;
         const endY = e.changedTouches[0].clientY;
         const diffX = endX - startX;
         const diffY = endY - startY;
 
-        // ダブルタップ判定
+        // ダブルタップ
         if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 10) {
             if (scale > 1.05) {
                 resetZoom();
             } else {
-                // タップした場所を中心に拡大
-                const rect = img.getBoundingClientRect();
-                // 画面中央からのタップ位置のオフセット
                 const touchX = startX - window.innerWidth / 2;
                 const touchY = startY - window.innerHeight / 2;
-
                 scale = 2.5;
-                // タップ位置が中央に来るようにずらす
                 x = -touchX * scale;
                 y = -touchY * scale;
                 update();
             }
             e.preventDefault();
-            // ダブルタップ成立時はマルチタッチフラグ等をリセット
             isMultiTouch = false;
         } 
-        // スワイプ判定（マルチタッチ中でない場合のみ）
+        // スワイプ（等倍時のみ）
         else if (!isMultiTouch && scale <= 1.05 && Math.abs(diffX) > 60) {
             diffX < 0 ? nav('next') : nav('prev');
         }
     }
 
     if (e.touches.length === 0) {
-        // 全ての指が離れてから一定時間後にマルチタッチフラグを戻す
-        // 指を離す瞬間のシングルタップ誤爆を防ぐ
         setTimeout(() => { isMultiTouch = false; }, 100);
         isDragging = false;
         lastDist = 0;
