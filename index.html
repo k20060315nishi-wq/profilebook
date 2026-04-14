@@ -2,7 +2,9 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Wedding Profile Book</title>
 
 <style>
@@ -34,7 +36,6 @@ body, html {
     display: flex;
     justify-content: center;
     align-items: center;
-    transition: transform 0.1s cubic-bezier(0.2, 0, 0.2, 1); /* 微細な遅延で滑らかさを演出 */
 }
 
 .page img {
@@ -48,7 +49,7 @@ body, html {
 
 .nav {
     position: fixed;
-    bottom: 30px;
+    bottom: calc(30px + env(safe-area-inset-bottom));
     width: 56px;
     height: 56px;
     border-radius: 50%;
@@ -77,7 +78,7 @@ body, html {
 
 #overlay {
     position: fixed;
-    top: 30px;
+    top: calc(30px + env(safe-area-inset-top));
     left: 50%;
     transform: translateX(-50%);
     color: white;
@@ -134,7 +135,7 @@ const overlay = document.getElementById('overlay');
 
 document.getElementById('total').textContent = TOTAL;
 
-/* Preload next/prev images */
+/* Preload images */
 const cache = {};
 function preload(n) {
     if (n < 1 || n > TOTAL) return;
@@ -149,7 +150,7 @@ function preload(n) {
 /* Page Rendering */
 function render() {
     img.style.opacity = 0;
-    resetZoom(true); // ページ切り替え時はアニメーションありでリセット
+    resetZoom(true);
 
     setTimeout(() => {
         img.src = `${PREFIX}${current}${EXT}`;
@@ -169,18 +170,17 @@ function showOverlay() {
     window.overlayTimer = setTimeout(() => { overlay.style.opacity = 0; }, 2500);
 }
 
-/* Core Transform Logic */
+/* Core Transform Logic with GPU Acceleration */
 function update(useClamp = true, animate = false) {
     if (useClamp) {
-        // ラバーバンド効果（端に到達した時の弾力）をシミュレートする場合はここを調整可能だが
-        // ここでは標準的なクランプを適用
         const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
         const limitY = Math.max(0, (img.offsetHeight * scale - window.innerHeight) / 2);
         x = Math.max(-limitX, Math.min(limitX, x));
         y = Math.max(-limitY, Math.min(limitY, y));
     }
 
-    wrapper.style.transition = animate ? 'transform 0.3s cubic-bezier(0.1, 0.7, 0.1, 1)' : 'none';
+    // 操作中はアニメーションオフ、指を離した時などは滑らかに
+    wrapper.style.transition = animate ? 'transform 0.3s cubic-bezier(0.15, 0, 0.15, 1)' : 'none';
     wrapper.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
 }
 
@@ -196,7 +196,7 @@ function nav(dir) {
     render();
 }
 
-/* Event Handlers for Nav Buttons */
+/* Button setup with stopPropagation */
 const setupNav = () => {
     const btns = document.querySelectorAll('.nav');
     btns.forEach(btn => {
@@ -210,7 +210,7 @@ const setupNav = () => {
 };
 setupNav();
 
-/* Gesture Logic */
+/* Touch events */
 viewer.addEventListener('touchstart', e => {
     if (e.target.closest('.nav')) return;
 
@@ -230,6 +230,7 @@ viewer.addEventListener('touchstart', e => {
 }, { passive: false });
 
 viewer.addEventListener('touchmove', e => {
+    // 拡大中または2本指時はブラウザの挙動を抑制
     if (scale > 1.01 || e.touches.length > 1) {
         e.preventDefault();
     }
@@ -237,7 +238,7 @@ viewer.addEventListener('touchmove', e => {
     if (e.touches.length === 1 && isDragging) {
         x = lastX + (e.touches[0].clientX - startX);
         y = lastY + (e.touches[0].clientY - startY);
-        update(false); // ドラッグ中は制限をかけず自由な指への追従を実現
+        update(false); 
     }
 
     if (e.touches.length === 2) {
@@ -250,18 +251,15 @@ viewer.addEventListener('touchmove', e => {
         if (lastDist) {
             const delta = dist / lastDist;
             const prevScale = scale;
-            
-            // 指の動きに敏感に反応させる
             scale = Math.min(Math.max(0.8, scale * delta), 6);
             
             const factor = scale / prevScale;
             const touchX = midX - window.innerWidth / 2;
             const touchY = midY - window.innerHeight / 2;
             
-            // 指の中点を中心に座標をスケーリング
+            // 指と指の中点を維持して拡大
             x = touchX - (touchX - x) * factor;
             y = touchY - (touchY - y) * factor;
-            
             update(false); 
         }
         lastDist = dist;
@@ -271,24 +269,20 @@ viewer.addEventListener('touchmove', e => {
 viewer.addEventListener('touchend', e => {
     const now = Date.now();
 
-    // 全ての指が離れた、または1本に戻った際に位置を補正
+    // 指を離した際のクランプ補正（等倍より小さければリセット、大きすぎれば最大値へ）
     if (e.touches.length < 2) {
-        if (scale < 1) {
-            resetZoom(true);
-        } else if (scale > 4) {
-            scale = 4;
-            update(true, true);
-        } else {
-            update(true, true);
-        }
+        if (scale < 1) resetZoom(true);
+        else if (scale > 4) { scale = 4; update(true, true); }
+        else update(true, true);
     }
 
     if (e.changedTouches.length === 1) {
         if (e.target.closest('.nav')) return;
 
         const endX = e.changedTouches[0].clientX;
+        const endY = e.changedTouches[0].clientY;
         const diffX = endX - startX;
-        const diffY = e.changedTouches[0].clientY - startY;
+        const diffY = endY - startY;
 
         // Double Tap
         if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 15) {
@@ -297,9 +291,12 @@ viewer.addEventListener('touchend', e => {
             } else {
                 const touchX = startX - window.innerWidth / 2;
                 const touchY = startY - window.innerHeight / 2;
+                const prevScale = scale;
                 scale = 3;
-                x = -touchX * (scale - 1);
-                y = -touchY * (scale - 1);
+                
+                // タップ地点を中心に拡大
+                x = touchX - (touchX - x) * (scale / prevScale);
+                y = touchY - (touchY - y) * (scale / prevScale);
                 update(true, true);
             }
             e.preventDefault();
@@ -312,7 +309,6 @@ viewer.addEventListener('touchend', e => {
     }
 
     if (e.touches.length === 0) {
-        // マルチタッチフラグの解除に遊びを持たせて誤爆を防止
         setTimeout(() => { isMultiTouch = false; }, 150);
         isDragging = false;
         lastDist = 0;
@@ -320,7 +316,6 @@ viewer.addEventListener('touchend', e => {
     lastTap = now;
 });
 
-/* Initialize */
 render();
 window.addEventListener('resize', () => resetZoom(false));
 </script>
