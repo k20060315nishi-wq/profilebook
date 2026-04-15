@@ -36,6 +36,9 @@ body, html {
     display: flex;
     justify-content: center;
     align-items: center;
+    /* 拡大時のボケを抑制するマジック */
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
 }
 
 .page img {
@@ -45,6 +48,11 @@ body, html {
     transition: opacity 0.3s ease;
     box-shadow: 0 0 50px rgba(0,0,0,0.8);
     pointer-events: none;
+    
+    /* 高画質化のためのレンダリング設定 */
+    image-rendering: -webkit-optimize-contrast;
+    image-rendering: crisp-edges;
+    transform: translateZ(0); /* ハードウェア加速を促進 */
 }
 
 .nav {
@@ -64,8 +72,6 @@ body, html {
     -webkit-backdrop-filter: blur(15px);
     z-index: 1000;
     transition: all 0.2s ease;
-    cursor: pointer;
-    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
 }
 
 .nav:active {
@@ -135,7 +141,6 @@ const overlay = document.getElementById('overlay');
 
 document.getElementById('total').textContent = TOTAL;
 
-/* Preload images */
 const cache = {};
 function preload(n) {
     if (n < 1 || n > TOTAL) return;
@@ -147,7 +152,6 @@ function preload(n) {
     }
 }
 
-/* Page Rendering */
 function render() {
     img.style.opacity = 0;
     resetZoom(true);
@@ -170,7 +174,6 @@ function showOverlay() {
     window.overlayTimer = setTimeout(() => { overlay.style.opacity = 0; }, 2500);
 }
 
-/* Core Transform Logic with GPU Acceleration */
 function update(useClamp = true, animate = false) {
     if (useClamp) {
         const limitX = Math.max(0, (img.offsetWidth * scale - window.innerWidth) / 2);
@@ -179,8 +182,8 @@ function update(useClamp = true, animate = false) {
         y = Math.max(-limitY, Math.min(limitY, y));
     }
 
-    // 操作中はアニメーションオフ、指を離した時などは滑らかに
     wrapper.style.transition = animate ? 'transform 0.3s cubic-bezier(0.15, 0, 0.15, 1)' : 'none';
+    // translate3dを使用してハードウェアアクセラレーションを有効化
     wrapper.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
 }
 
@@ -196,21 +199,16 @@ function nav(dir) {
     render();
 }
 
-/* Button setup with stopPropagation */
-const setupNav = () => {
-    const btns = document.querySelectorAll('.nav');
-    btns.forEach(btn => {
-        btn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
-        btn.onclick = (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-            nav(btn.id === 'next' ? 'next' : 'prev');
-        };
-    });
-};
-setupNav();
+const btns = document.querySelectorAll('.nav');
+btns.forEach(btn => {
+    btn.addEventListener('touchstart', e => e.stopPropagation(), { passive: true });
+    btn.onclick = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        nav(btn.id === 'next' ? 'next' : 'prev');
+    };
+});
 
-/* Touch events */
 viewer.addEventListener('touchstart', e => {
     if (e.target.closest('.nav')) return;
 
@@ -230,7 +228,6 @@ viewer.addEventListener('touchstart', e => {
 }, { passive: false });
 
 viewer.addEventListener('touchmove', e => {
-    // 拡大中または2本指時はブラウザの挙動を抑制
     if (scale > 1.01 || e.touches.length > 1) {
         e.preventDefault();
     }
@@ -257,7 +254,6 @@ viewer.addEventListener('touchmove', e => {
             const touchX = midX - window.innerWidth / 2;
             const touchY = midY - window.innerHeight / 2;
             
-            // 指と指の中点を維持して拡大
             x = touchX - (touchX - x) * factor;
             y = touchY - (touchY - y) * factor;
             update(false); 
@@ -269,7 +265,6 @@ viewer.addEventListener('touchmove', e => {
 viewer.addEventListener('touchend', e => {
     const now = Date.now();
 
-    // 指を離した際のクランプ補正（等倍より小さければリセット、大きすぎれば最大値へ）
     if (e.touches.length < 2) {
         if (scale < 1) resetZoom(true);
         else if (scale > 4) { scale = 4; update(true, true); }
@@ -284,7 +279,6 @@ viewer.addEventListener('touchend', e => {
         const diffX = endX - startX;
         const diffY = endY - startY;
 
-        // Double Tap
         if (now - lastTap < 300 && Math.hypot(diffX, diffY) < 15) {
             if (scale > 1.1) {
                 resetZoom(true);
@@ -293,8 +287,6 @@ viewer.addEventListener('touchend', e => {
                 const touchY = startY - window.innerHeight / 2;
                 const prevScale = scale;
                 scale = 3;
-                
-                // タップ地点を中心に拡大
                 x = touchX - (touchX - x) * (scale / prevScale);
                 y = touchY - (touchY - y) * (scale / prevScale);
                 update(true, true);
@@ -302,7 +294,6 @@ viewer.addEventListener('touchend', e => {
             e.preventDefault();
             isMultiTouch = false;
         } 
-        // Swipe Navigation
         else if (!isMultiTouch && scale <= 1.01 && Math.abs(diffX) > 50) {
             diffX < 0 ? nav('next') : nav('prev');
         }
